@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Street Racer — YouTube Playable</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: #1a1a2e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+  }
+  #game-container {
+    position: relative;
+    width: 100%;
+    max-width: 360px;
+    height: 100%;
+    max-height: 640px;
+    background: #2d3436;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(#1e272e, #0f1721);
+  }
+  #ui {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    color: #fff;
+    padding: 16px;
+  }
+  #hud {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: auto;
+  }
+  #score { font-size: 20px; font-weight: 800; color: #00d2ff; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+  #speed { font-size: 16px; color: #ff6b6b; font-weight: 700; }
+  #overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.75);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    pointer-events: auto; z-index: 10;
+    backdrop-filter: blur(4px);
+  }
+  #overlay.hidden { display: none; }
+  #overlay h1 { font-size: 40px; margin-bottom: 8px; letter-spacing: 2px; text-transform: uppercase; }
+  #overlay p { font-size: 18px; color: #ddd; margin-bottom: 24px; }
+  .btn {
+    background: #00d2ff; color: #000; border: none;
+    padding: 14px 40px; font-size: 18px; font-weight: 800;
+    border-radius: 12px; cursor: pointer; touch-action: manipulation;
+  }
+  .btn:active { transform: scale(0.95); }
+  #controls {
+    position: absolute; bottom: 20px; left: 0; right: 0;
+    display: flex; justify-content: space-between; padding: 0 30px;
+    pointer-events: none;
+  }
+  .side-btn {
+    width: 70px; height: 70px; border-radius: 50%;
+    background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.3);
+    pointer-events: auto; display: flex; align-items: center; justify-content: center;
+    font-size: 28px; color: #fff; user-select: none;
+  }
+  .side-btn:active { background: rgba(255,255,255,0.35); }
+  #start-screen h1 { font-size: 36px; margin-bottom: 6px; }
+  #start-screen p { color: #aaa; margin-bottom: 24px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <canvas id="gameCanvas"></canvas>
+  <div id="ui">
+    <div id="hud">
+      <div id="score">Distance: 0 m</div>
+      <div id="speed">Speed: 0 km/h</div>
+    </div>
+  </div>
+  <div id="controls">
+    <div class="side-btn" id="btnLeft" ontouchstart="return false;">◀</div>
+    <div class="side-btn" id="btnRight" ontouchstart="return false;">▶</div>
+  </div>
+  <div id="overlay">
+    <div id="start-screen">
+      <h1>Street Racer</h1>
+      <p>Avoid traffic. Survive as long as you can.</p>
+      <button class="btn" id="btnStart">Start Race</button>
+    </div>
+    <div id="gameover-screen" class="hidden">
+      <h1 id="go-title">Game Over</h1>
+      <p id="go-score">Distance: 0 m</p>
+      <button class="btn" id="btnRestart">Race Again</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.youtube.com/game_api/v1"></script>
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const speedEl = document.getElementById('speed');
+const startScreen = document.getElementById('start-screen');
+const goScreen = document.getElementById('gameover-screen');
+const goTitle = document.getElementById('go-title');
+const goScore = document.getElementById('go-score');
+
+// -------- Resize handling --------
+function resize() {
+  const container = document.getElementById('game-container');
+  const dpr = window.devicePixelRatio || 1;
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  ctx.scale(dpr, dpr);
+  CANVAS_W = w;
+  CANVAS_H = h;
+}
+let CANVAS_W, CANVAS_H;
+window.addEventListener('resize', resize);
+resize();
+
+// -------- Playables SDK integration --------
+let ytSdkReady = false;
+function onYouTubeGameApiReady() {
+  // SDK is available as ytgame (global injected by the script)
+  if (window.ytgame) {
+    ytSdkReady = true;
+    console.log('YouTube Playables SDK ready');
+  }
+}
+// The SDK calls this global function when loaded
+window.onYouTubeGameApiReady = onYouTubeGameApiReady;
+
+// -------- Game constants --------
+const LANES = 3;
+const LANE_W = CANVAS_W / LANES;
+const PLAYER_W = 44, PLAYER_H = 78;
+const ENEMY_W = 44, ENEMY_H = 78;
+const COLORS = ['#ff4757', '#2ed573', '#ffa502', '#ff6b6b', '#ff9ff3', '#54a0ff'];
+
+// -------- State --------
+let state = 'START'; // START, PLAYING, GAMEOVER
+let score = 0;
+let speed = 4;
+let baseSpeed = 4;
+let frame = 0;
+let spawnTimer = 0;
+let particles = [];
+
+let player = { x: 0, y: 0, w: PLAYER_W, h: PLAYER_H, lane: 1, targetLane: 1, moving: 0 };
+let enemies = [];
+
+// -------- Input --------
+let keys = {};
+window.addEventListener('keydown', e => { keys[e.key] = true; });
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+const btnLeft = document.getElementById('btnLeft');
+const btnRight = document.getElementById('btnRight');
+function pressSide(dir) {
+  if (state !== 'PLAYING') return;
+  if (dir === -1) player.lane = Math.max(0, player.lane - 1);
+  else player.lane = Math.min(LANES - 1, player.lane + 1);
+}
+btnLeft.addEventListener('touchstart', e => { e.preventDefault(); pressSide(-1); });
+btnLeft.addEventListener('mousedown', e => { e.preventDefault(); pressSide(-1); });
+btnRight.addEventListener('touchstart', e => { e.preventDefault(); pressSide(1); });
+btnRight.addEventListener('mousedown', e => { e.preventDefault(); pressSide(1); });
+
+document.getElementById('btnStart').addEventListener('click', startGame);
+document.getElementById('btnRestart').addEventListener('click', startGame);
+
+function startGame() {
+  state = 'PLAYING';
+  score = 0;
+  speed = baseSpeed;
+  frame = 0;
+  spawnTimer = 0;
+  enemies = [];
+  particles = [];
+  player.lane = 1;
+  player.x = (1 * LANE_W) + (LANE_W - PLAYER_W) / 2;
+  player.y = CANVAS_H - PLAYER_H - 20;
+  player.moving = 0;
+  startScreen.classList.add('hidden');
+  goScreen.classList.add('hidden');
+  requestAnimationFrame(loop);
+}
+
+// -------- Helpers --------
+function spawnEnemy() {
+  const lane = Math.floor(Math.random() * LANES);
+  const x = (lane * LANE_W) + (LANE_W - ENEMY_W) / 2 + (Math.random() - 0.5) * 10;
+  const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+  enemies.push({ x, y: -ENEMY_H - 40, w: ENEMY_W, h: ENEMY_H, lane, color, sway: Math.random() * 0.05 });
+}
+function spawnSpawnTimer() {
+  return Math.max(30, 90 - Math.floor(score / 50) * 4);
+}
+function explode(x, y, color) {
+  for (let i = 0; i < 14; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 10,
+      vy: (Math.random() - 0.5) * 10,
+      life: 1.0,
+      color
+    });
+  }
+}
+function rectIntersect(r1, r2) {
+  return r1.x < r2.x + r2.w - 10 &&
+         r1.x + r1.w > r2.x + 10 &&
+         r1.y < r2.y + r2.h - 10 &&
+         r1.y + r1.h > r2.y + 10;
+}
+
+// -------- Draw car --------
+function drawCar(x, y, w, h, color, isPlayer) {
+  ctx.save();
+  ctx.translate(x + w/2, y + h/2);
+  // body
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.roundRect(-w/2 + 4, -h/2 + 4, w - 8, h - 8, 10);
+  ctx.fill();
+  // roof
+  ctx.fillStyle = isPlayer ? '#ffffff' : '#b2bec3';
+  ctx.fillRect(-w/2 + 10, -h/2 + 6, w - 20, h * 0.42);
+  // windows
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.fillRect(-w/2 + 14, -h/2 + 10, w - 28, h * 0.34);
+  // wheels
+  ctx.fillStyle = '#2d3436';
+  ctx.beginPath();
+  ctx.arc(-w/2 + 10, h/2 - 10, 8, 0, Math.PI*2);
+  ctx.arc(w/2 - 10, h/2 - 10, 8, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// -------- Main loop --------
+function loop() {
+  if (state !== 'PLAYING') return;
+
+  frame++;
+  ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // Road
+  ctx.fillStyle = '#1e272e';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  // lane dividers
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.setLineDash([20, 40]);
+  ctx.lineWidth = 4;
+  const dashOffset = -(frame * speed * 2) % 60;
+  ctx.lineDashOffset = dashOffset;
+  for (let i = 1; i < LANES; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * LANE_W, 0);
+    ctx.lineTo(i * LANE_W, CANVAS_H);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Input / movement
+  if (keys['ArrowLeft'] || keys['a']) player.lane = Math.max(0, player.lane - 0.15);
+  if (keys['ArrowRight'] || keys['d']) player.lane = Math.min(LANES - 1, player.lane + 0.15);
+  player.lane = Math.max(0, Math.min(LANES - 1, player.lane));
+  const targetX = (player.lane * LANE_W) + (LANE_W - PLAYER_W) / 2;
+  player.x += (targetX - player.x) * 0.22;
+
+  // Spawn enemies
+  spawnTimer--;
+  if (spawnTimer <= 0) {
+    spawnEnemy();
+    spawnTimer = spawnSpawnTimer();
+  }
+
+  // Update & draw enemies
+  let newEnemies = [];
+  for (let e of enemies) {
+    e.y += speed + 1.5;
+    e.x += Math.sin(frame * 0.05 + e.lane) * e.sway * 1.2;
+    drawCar(e.x, e.y, ENEMY_W, ENEMY_H, e.color, false);
+    if (rectIntersect(player, e)) {
+      explode(player.x + PLAYER_W/2, player.y + PLAYER_H/2, '#ff4757');
+      state = 'GAMEOVER';
+      showGameOver();
+      return;
+    }
+    if (e.y < CANVAS_H) newEnemies.push(e);
+    else score += 10;
+  }
+  enemies = newEnemies;
+
+  // Draw player
+  drawCar(player.x, player.y, PLAYER_W, PLAYER_H, '#00d2ff', true);
+
+  // Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    let p = particles[i];
+    p.x += p.vx; p.y += p.vy; p.life -= 0.045;
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, 4, 4);
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+  ctx.globalAlpha = 1;
+
+  // HUD
+  score += speed * 0.05;
+  speedEl.textContent = `Speed: ${Math.floor(speed * 10)} km/h`;
+  scoreEl.textContent = `Distance: ${Math.floor(score)} m`;
+  speed += 0.0008;
+
+  requestAnimationFrame(loop);
+}
+
+function showGameOver() {
+  goTitle.textContent = 'Game Over';
+  goScore.textContent = `Distance: ${Math.floor(score)} m`;
+  goScreen.classList.remove('hidden');
+}
+
+// -------- SDK lifecycle hooks --------
+function sdkReady() {
+  if (ytSdkReady && window.ytgame) {
+    try {
+      window.ytgame.firstFrameReady();
+    } catch (e) { console.warn('firstFrameReady failed', e); }
+  }
+}
+window.addEventListener('load', () => {
+  sdkReady();
+  // After assets loaded (instant here), signal interactive
+  setTimeout(() => {
+    if (ytSdkReady && window.ytgame) {
+      try { window.ytgame.gameReady(); } catch (e) { console.warn('gameReady failed', e); }
+    }
+  }, 300);
+});
+</script>
+</body>
+</html>
