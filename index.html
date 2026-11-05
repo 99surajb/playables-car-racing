@@ -237,14 +237,28 @@ function rectIntersect(r1, r2) {
          r1.y + r1.h > r2.y + 10;
 }
 
+// -------- Manual rounded rect (works on all browsers) --------
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
 // -------- Draw car --------
 function drawCar(x, y, w, h, color, isPlayer) {
   ctx.save();
   ctx.translate(x + w/2, y + h/2);
   // body
   ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.roundRect(-w/2 + 4, -h/2 + 4, w - 8, h - 8, 10);
+  roundRect(ctx, -w/2 + 4, -h/2 + 4, w - 8, h - 8, 10);
   ctx.fill();
   // roof
   ctx.fillStyle = isPlayer ? '#ffffff' : '#b2bec3';
@@ -263,8 +277,6 @@ function drawCar(x, y, w, h, color, isPlayer) {
 
 // -------- Main loop --------
 function loop() {
-  if (state !== 'PLAYING') return;
-
   frame++;
   ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -284,6 +296,32 @@ function loop() {
     ctx.stroke();
   }
   ctx.setLineDash([]);
+
+  if (state === 'START') {
+    // Draw idle player car
+    player.lane = 1;
+    player.x = (1 * LANE_W) + (LANE_W - PLAYER_W) / 2;
+    player.y = CANVAS_H - PLAYER_H - 20;
+    drawCar(player.x, player.y, PLAYER_W, PLAYER_H, '#00d2ff', true);
+
+    // Start instructions on canvas
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px -apple-system, Segoe UI, Roboto, Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('STREET RACER', CANVAS_W / 2, CANVAS_H / 2 - 60);
+    ctx.fillStyle = '#00d2ff';
+    ctx.font = '18px -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText('Tap START RACE to begin', CANVAS_W / 2, CANVAS_H / 2 - 20);
+    ctx.fillStyle = '#aaaaaa';
+    ctx.font = '16px -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText('Tap left / right to steer', CANVAS_W / 2, CANVAS_H / 2 + 10);
+    ctx.textAlign = 'left';
+
+    requestAnimationFrame(loop);
+    return;
+  }
+
+  if (state !== 'PLAYING') return;
 
   // Input / movement
   if (keys['ArrowLeft'] || keys['a']) player.lane = Math.max(0, player.lane - 0.15);
